@@ -1,0 +1,49 @@
+Bootstrap: localimage
+
+From: sif_images/pytorch_rocm6.2.1_ubuntu22.04_py3.10_pytorch_release_2.3.0.sif
+
+%post
+  #Set how many cpu cores are using in compilation
+  #"-j$(nproc)" uses all the cores available
+  export MAKEFLAGS="-j$(nproc)"
+  export PYTORCH_ROCM_ARCH=gfx90a
+  #Install some commands with zypper/apt
+  apt install tmux hostname
+  
+  #Activate the conda enviroment inside the container
+  bash /opt/conda/bin/activate py_3.10
+  
+  #Pip installations
+  pip install --upgrade pip
+  pip install --upgrade setuptools
+  pip install ninja cmake wheel pybind11
+  
+  #Triton installation for FA
+  TRITON_BUILD_WITH_CLANG_LLD=true
+  TRITON_BUILD_WITH_CCACHE=true
+  git clone https://github.com/triton-lang/triton
+  cd triton
+  git checkout 3ca2f498e98ed7249b82722587c511a5610e00c4 
+  pip install --verbose -e python
+
+  #Flash-attention installation with Triton backend
+  git clone https://github.com/ROCmSoftwarePlatform/flash-attention.git
+  cd flash-attention
+  export FLASH_ATTENTION_TRITON_AMD_ENABLE="TRUE"
+  python setup.py install
+  #pytest tests/test_flash_attn.py
+
+  #VLLM installation
+  cd /opt
+  git clone https://github.com/ROCm/vllm.git
+  cd vllm
+  pip install --upgrade numba scipy huggingface-hub[cli]
+  pip install "numpy<2"
+  pip install -U -r requirements-rocm.txt
+  python3 setup.py bdist_wheel --dist-dir=/opt/wheels
+  pip install /opt/wheels/vllm-*.whl
+
+
+%environment
+  #These variables are only available at runtime
+  export FLASH_ATTENTION_TRITON_AMD_ENABLE=TRUE
