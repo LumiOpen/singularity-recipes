@@ -1,0 +1,60 @@
+Bootstrap: localimage
+
+From: /appl/local/containers/sif-images/lumi-pytorch-rocm-6.2.1-python-3.12-pytorch-20240918-vllm-4075b35.sif
+
+%post
+
+  #COMPILATION JOBS
+  #Set how many cpu cores are using in compilation
+  #"-j$(nproc)" uses all the cores available
+  export MAKEFLAGS="-j$(nproc)"
+  export N_JOBS="-j$(nproc)"
+  export MAX_JOBS=$(nproc)
+  #Which arch to compile torch ops for
+  export PYTORCH_ROCM_ARCH=gfx90a
+  export CMAKE_INSTALL_PREFIX=/opt/
+  #Install some commands with zypper
+  zypper -n install -y tmux hostname cmake gcc
+
+  #Activate the pytorch environment
+  source /opt/miniconda3/bin/activate pytorch
+  #Libedit and zstd are needed for TE because of the 3rdparty triton -> 3rdparty llvm installation
+  conda install libedit zstd
+  #Pip installations
+  pip install --upgrade pip
+  pip install --upgrade setuptools
+  #Lit for the triton's llvm testing suite
+  pip install --verbose ninja cmake wheel pybind11 lit
+
+
+  #TE installation
+  #Set the environment variables
+  export TRITON_HOME=/opt/triton/          #Cache for triton operations
+  export TRITON_CACHE_DIR=/opt/triton/
+  export NVTE_FRAMEWORK=pytorch           #Build for torch only bcuz who cares about jax
+  export NVTE_ROCM_ARCH=gfx90a            #Mi250x arch
+  export GPU_TARGETS=gfx90a               #For composed kernels
+  export NVTE_FUSED_ATTN_AOTRITON=1       #Compiling FA for CK only for now. Setting this to 0 also saves time.
+  export NVTE_FUSED_ATTN_CK=1             #Used composed kernels for fused attention. This might not be needed
+  export NVTE_USE_ROCBLAS=1               #HipBlas only works for mi300x i think
+  export NVTE_USE_HIPBLASLT=1
+  export CXX=clang++                      #g++-12 doesnt support --offload-arch
+  export TORCH_DONT_CHECK_COMPILER_ABI=1  #Pytorch compiler check fails with clang.18.0.0.git
+  export CK_USE_FP8_ON_UNSUPPORTED_ARCH=ON
+  export TARGET_GPUS=MI250X               #AOTriton. I think by default compilation is for mi300x aswell
+  export TRITON_BUILD_WITH_CLANG_LLD=true
+
+  # Clone TE repo and submodules
+  # FYI this will likely take a long tim
+  cd /opt
+  git clone --recursive https://github.com/ROCm/TransformerEngine.git
+  cd TransformerEngine
+  pip install --verbose .
+  rm -rf TransformerEngine
+
+  unset TRITON_HOME
+
+
+%environment
+  #These variables are only available at runtime
+  #export VLLM_USE_TRITON_FLASH_ATTN=0 #Use rocm version of FA instead of triton
