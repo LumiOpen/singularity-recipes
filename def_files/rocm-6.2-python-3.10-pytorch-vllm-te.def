@@ -1,0 +1,109 @@
+Bootstrap: localimage
+
+From: /appl/local/containers/sif-images/lumi-rocm-rocm-6.2.2.sif
+
+%post
+
+  #Set how many cpu cores are using in compilation
+  #"-j$(nproc)" uses all the cores available
+  export MAKEFLAGS="-j$(nproc)"
+  export N_JOBS="-j$(nproc)"  
+  export MAX_JOBS=$(nproc)    #Ninja jobs
+  export CMAKE_INSTALL_PREFIX=/opt/
+
+  #c++ compiler to use
+  export CXX=clang++                      #g++-12 doesnt support --offload-arch
+  export TORCH_DONT_CHECK_COMPILER_ABI=1  #Pytorch compiler check fails with clang.18.0.0.git
+
+  #Install some commands with zypper/apt
+  zypper -n install -y tmux hostname curl cmake sccache gcc
+  
+  # Get python3.10 from miniconda
+  curl -LO https://repo.anaconda.com/miniconda/Miniconda3-py310_24.9.2-0-Linux-x86_64.sh
+  # Install miniconda
+  bash ./Miniconda3-* -b -p /opt/miniconda3 -s
+  rm -rf ./Miniconda3-*
+  # Create and activate the pytorch environment
+  source /opt/miniconda3/bin/activate base
+
+  conda create -n pytorch python=3.10 -y
+  conda activate pytorch
+  
+  echo "Conda environment activated: $(conda info --envs)"
+  export WITH_CONDA="source /opt/miniconda3/bin/activate pytorch"
+
+  # Ensure pip is installed
+  conda install ninja pillow pyyaml setuptools -y
+
+  #Pip installations
+  pip install --upgrade pip
+  pip install --upgrade setuptools
+  pip install ninja cmake wheel pybind11
+
+  export PYTORCH_ROCM_ARCH=gfx90a
+  #Pytorch nightly wheels
+  #Building from source is a pain
+  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.2
+  #TODO:Set LLVM Directory outside of triton cache
+  export CMAKE_INSTALL_PREFIX=/opt/
+
+  #Upgrade Deepspeed
+  #Ops are JIT
+  DS_ACCELERATOR=cuda pip install deepspeed --upgrade
+
+  #Apex installation
+  git clone https://github.com/rocm/apex
+  cd apex
+  pip install -v --no-build-isolation --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" ./
+
+  #VLLM installation
+  cd /opt
+  git clone https://github.com/ROCm/vllm.git
+  cd vllm
+  pip install --upgrade numba scipy huggingface-hub[cli]
+  pip install "numpy<2"
+  pip install -U -r requirements-rocm.txt
+  python3 setup.py bdist_wheel --dist-dir=/opt/wheels
+  pip install /opt/wheels/vllm-*.whl
+
+  #TODO
+  #Xformers
+
+
+  #FLASH-ATTENTION installation
+  cd /opt
+  git clone https://github.com/ROCm/flash-attention
+  cd flash-attention/
+  git checkout v2.7.3-cktile
+  export GPU_ARCHS="gfx90a"
+  pip install . -v
+  cd /opt
+  rm -rf flash-attention/
+
+  #TE installation
+  #Set the environment variables
+  export TRITON_HOME=/opt/triton/          #Cache for triton operations
+  export TRITON_CACHE_DIR=/opt/triton/
+  export NVTE_FRAMEWORK=pytorch           #Build for torch only bcuz who cares about jax
+  export NVTE_ROCM_ARCH=gfx90a            #Mi250x arch
+  export GPU_TARGETS=gfx90a               #For composed kernels
+  export NVTE_FUSED_ATTN_AOTRITON=1       #Fused attention backend. Ahead of time compiler triton kernels
+  export NVTE_FUSED_ATTN_CK=1             #Fused attention backend. Composed kernels
+  export NVTE_USE_ROCBLAS=1               
+  export NVTE_USE_HIPBLASLT=1
+  export CK_USE_FP8_ON_UNSUPPORTED_ARCH=ON
+  export TARGET_GPUS=MI250X               #AOTriton. I think by default compilation is for mi300x aswell
+  export TRITON_BUILD_WITH_CLANG_LLD=true
+
+  # Clone TE repo and submodules
+  cd /opt
+  git clone --recursive https://github.com/ROCm/TransformerEngine.git
+  cd TransformerEngine
+  pip install --verbose .
+  rm -rf /opt/TransformerEngine
+  
+
+
+%environment
+  #These variables are only available at runtime
+  export WITH_CONDA="source /opt/miniconda3/bin/activate pytorch"
