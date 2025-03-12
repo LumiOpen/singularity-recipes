@@ -1,0 +1,6 @@
+This is meant for building singularity containers out of arleady existing sif images.
+The .sif files located in /appl/local/containers/sif-images contain up to date singularity containers built by AMD personnel, spesifically for LUMI.
+These pytorch containers (.sif files) contain most of "AI stack": pytorch, apex, deepspeed etc. They also contain the aws-ofi-rccl plugin needed for efficient multi-node communication.
+
+## Proot
+https://docs.sylabs.io/guides/4.0/user-guide/build_a_container.html#unprivilged-proot-builds
