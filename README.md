@@ -1,2 +1,2 @@
 # singularity-recipes
-Singularity definition files. Slurm scripts for building container in lumi.
+Singularity definition files. Slurm scripts for building containers in lumi.
