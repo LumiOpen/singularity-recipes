@@ -43,7 +43,7 @@ From: /appl/local/containers/sif-images/lumi-rocm-rocm-6.2.2.sif
   export PYTORCH_ROCM_ARCH=gfx90a
   #Pytorch nightly wheels
   #Building from source is a pain
-  pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/rocm6.2
+  pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/rocm6.2
   #TODO:Set LLVM Directory outside of triton cache
   export CMAKE_INSTALL_PREFIX=/opt/
 
