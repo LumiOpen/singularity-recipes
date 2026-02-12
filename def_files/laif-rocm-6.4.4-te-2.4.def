@@ -1,0 +1,39 @@
+Bootstrap: localimage
+#TODO: Change to definite version instead of "latest"
+From: /appl/local/laifs/containers/laifs-lumi-multi-latest.sif 
+
+%post
+  #Set how many cpu cores are using in compilation
+  #"-j$(nproc)" uses all the cores available
+  export MAKEFLAGS="-j$(nproc)"
+  export N_JOBS="-j$(nproc)"  
+  export MAX_JOBS=$(nproc)    #Ninja jobs
+  export CMAKE_INSTALL_PREFIX=/opt/
+  export PYTORCH_ROCM_ARCH=gfx90a
+  export GPU_ARCHS="gfx90a"               # For FA
+  #c++ compiler to use
+  export CXX=clang++                      #g++-12 doesnt support --offload-arch
+  export TORCH_DONT_CHECK_COMPILER_ABI=1  #Pytorch compiler check fails with clang.18.0.0.git
+
+  # TE installation
+  # This is a fuck
+  # Set the environment variables
+  
+  export NVTE_FRAMEWORK=pytorch             #Build for torch only bcuz who cares about jax
+  export NVTE_ROCM_ARCH=gfx90a              #Mi250x arch
+  export GPU_TARGETS=gfx90a                 #For composed kernels
+  export NVTE_FUSED_ATTN_AOTRITON=1         #Fused attention backend. Ahead of time compiler triton kernels
+  export NVTE_FUSED_ATTN_CK=1               #Fused attention backend. Composed kernels
+  export NVTE_USE_ROCBLAS=1               
+  export NVTE_USE_HIPBLASLT=1
+  export CK_USE_FP8_ON_UNSUPPORTED_ARCH=ON
+  export TARGET_GPUS=MI250X                 #AOTriton. I think by default compilation is for mi300x aswell
+  export TRITON_BUILD_WITH_CLANG_LLD=true  #Building with lld should result in faster builds: https://github.com/triton-lang/triton?tab=readme-ov-file#tips-for-building
+
+  # Clone TE repo and submodules
+  cd /opt
+  git clone --recursive https://github.com/ROCm/TransformerEngine.git
+  cd TransformerEngine 
+  git checkout v2.4_rocm
+  pip install --verbose .
+  rm -rf /opt/TransformerEngine
