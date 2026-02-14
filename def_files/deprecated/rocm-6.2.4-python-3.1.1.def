@@ -1,0 +1,125 @@
+Bootstrap: localimage
+
+From: /appl/local/containers/sif-images/lumi-rocm-rocm-6.2.4.sif
+
+%post
+  #Set how many cpu cores are using in compilation
+  #"-j$(nproc)" uses all the cores available
+  export MAKEFLAGS="-j$(nproc)"
+  export N_JOBS="-j$(nproc)"  
+  export MAX_JOBS=$(nproc)    #Ninja jobs
+  export CMAKE_INSTALL_PREFIX=/opt/
+  export TRITON_HOME=/opt/triton/           #Cache for triton operations
+  export PYTORCH_ROCM_ARCH=gfx90a
+  export GPU_ARCHS="gfx90a"               # For FA
+  #c++ compiler to use
+  export CXX=clang++                      #g++-12 doesnt support --offload-arch
+  export TORCH_DONT_CHECK_COMPILER_ABI=1  #Pytorch compiler check fails with clang.18.0.0.git
+
+  #Install some commands with zypper/apt
+  zypper -n install -y tmux hostname curl cmake sccache gcc libxml2
+  
+  # Get python3.10 from miniconda
+  curl -LO https://repo.anaconda.com/miniconda/Miniconda3-py311_25.7.0-2-Linux-x86_64.sh
+  # Install miniconda
+  bash ./Miniconda3-* -b -p /opt/miniconda3 -s
+  export PATH="/opt/miniconda3/bin:$PATH"
+  conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+  conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+  rm -rf ./Miniconda3-*
+  # Create and activate the pytorch environment
+  source /opt/miniconda3/bin/activate base
+
+  conda create -n pytorch python=3.11 -y
+  conda activate pytorch
+  echo "Conda environment activated: $(conda info --envs)"
+  export WITH_CONDA="source /opt/miniconda3/bin/activate pytorch"
+
+  # Ensure pip is installed
+  conda install ninja pillow pyyaml setuptools -y
+
+  #Pip installations
+  pip install --upgrade pip
+  pip install --upgrade setuptools
+  pip install ninja cmake wheel pybind11
+
+  
+  #Pytorch nightly wheels
+  #Building from source is a pain
+  pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.2.4
+
+  #Upgrade Deepspeed
+  #Ops are JIT
+  DS_ACCELERATOR=cuda pip install deepspeed --upgrade
+
+  #Apex installation
+  git clone https://github.com/rocm/apex
+  cd apex
+  pip install -v --no-build-isolation --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" ./
+
+  #FLASH-ATTENTION installation
+  cd /opt
+  git clone https://github.com/ROCm/flash-attention
+  cd flash-attention/
+  git checkout v2.7.3-cktile
+  pip install . -v
+  cd /opt
+  rm -rf flash-attention/
+
+  # TRITON
+  # Torch comes with it's own triton (package pytorch-triton-rocm)
+  # But in the VLLM installation documentation a spesific commit of triton is installed
+  # pip uninstall -y triton
+  # git clone https://github.com/OpenAI/triton.git
+  # cd triton
+  # git checkout e5be006
+  # cd python
+  # pip3 install .
+  # cd ../..
+
+  # VLLM installation
+  # Largely following https://docs.vllm.ai/en/latest/getting_started/installation/gpu.html#amd-rocm
+  # Build & install the python library for AMD SMI
+  # https://rocm.docs.amd.com/projects/amdsmi/en/latest/
+  pip install /opt/rocm/share/amd_smi
+
+  cd /opt
+  git clone https://github.com/vllm-project/vllm
+  cd vllm
+  pip install --upgrade numba \
+    scipy \
+    huggingface-hub[cli,hf_transfer] \
+    setuptools_scm
+  pip install "numpy<2"
+  pip install -r requirements/rocm.txt
+  python3 setup.py develop
+
+  #TODO
+  #Xformers
+
+  # TE installation
+  # This is a fuck
+  # Set the environment variables
+  
+  export NVTE_FRAMEWORK=pytorch             #Build for torch only bcuz who cares about jax
+  export NVTE_ROCM_ARCH=gfx90a              #Mi250x arch
+  export GPU_TARGETS=gfx90a                 #For composed kernels
+  export NVTE_FUSED_ATTN_AOTRITON=1         #Fused attention backend. Ahead of time compiler triton kernels
+  export NVTE_FUSED_ATTN_CK=1               #Fused attention backend. Composed kernels
+  export NVTE_USE_ROCBLAS=1               
+  export NVTE_USE_HIPBLASLT=1
+  export CK_USE_FP8_ON_UNSUPPORTED_ARCH=ON
+  export TARGET_GPUS=MI250X                 #AOTriton. I think by default compilation is for mi300x aswell
+  export TRITON_BUILD_WITH_CLANG_LLD=true  #Building with lld should result in faster builds: https://github.com/triton-lang/triton?tab=readme-ov-file#tips-for-building
+
+  # Clone TE repo and submodules
+  cd /opt
+  git clone --recursive https://github.com/ROCm/TransformerEngine.git
+  cd TransformerEngine
+  pip install --verbose .
+  rm -rf /opt/TransformerEngine
+  
+
+%environment
+  #These variables are only available at runtime
+  export WITH_CONDA="source /opt/miniconda3/bin/activate pytorch"
