@@ -1,6 +1,6 @@
 Bootstrap: localimage
 #TODO: Change to definite version instead of "latest"
-From: /appl/local/laifs/containers/laifs-lumi-multi-latest.sif 
+From: /appl/local/laifs/containers/lumi-multitorch-u24r64f21m43t29-20260124_092648/lumi-multitorch-full-u24r64f21m43t29-20260124_092648.sif
 
 %post
   #Set how many cpu cores are using in compilation
@@ -12,7 +12,7 @@ From: /appl/local/laifs/containers/laifs-lumi-multi-latest.sif
   export PYTORCH_ROCM_ARCH=gfx90a
   export GPU_ARCHS="gfx90a"               # For FA
   #c++ compiler to use
-  export CXX=clang++                      #g++-12 doesnt support --offload-arch
+  #export CXX=clang++                      #g++-12 doesnt support --offload-arch
   export TORCH_DONT_CHECK_COMPILER_ABI=1  #Pytorch compiler check fails with clang.18.0.0.git
 
   # TE installation
@@ -34,6 +34,6 @@ From: /appl/local/laifs/containers/laifs-lumi-multi-latest.sif
   cd /opt
   git clone --recursive https://github.com/ROCm/TransformerEngine.git
   cd TransformerEngine 
-  git checkout v2.4_rocm
+  git checkout v2.1_rocm
   pip install --verbose .
   rm -rf /opt/TransformerEngine
