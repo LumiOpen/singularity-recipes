@@ -22,18 +22,21 @@ From: /appl/local/laifs/containers/lumi-multitorch-u24r64f21m43t29-20260124_0926
   export NVTE_FRAMEWORK=pytorch             #Build for torch only bcuz who cares about jax
   export NVTE_ROCM_ARCH=gfx90a              #Mi250x arch
   export GPU_TARGETS=gfx90a                 #For composed kernels
+  export NVTE_FUSED_ATTN=0
   export NVTE_FUSED_ATTN_AOTRITON=1         #Fused attention backend. Ahead of time compiler triton kernels
-  export NVTE_FUSED_ATTN_CK=1               #Fused attention backend. Composed kernels
-  export NVTE_USE_ROCBLAS=1               
   export NVTE_USE_HIPBLASLT=1
   export CK_USE_FP8_ON_UNSUPPORTED_ARCH=ON
-  export TARGET_GPUS=MI250X                 #AOTriton. I think by default compilation is for mi300x aswell
-  export TRITON_BUILD_WITH_CLANG_LLD=true  #Building with lld should result in faster builds: https://github.com/triton-lang/triton?tab=readme-ov-file#tips-for-building
-
+  export TARGET_GPUS=MI250X                 #AOTriton compilation
+  export TRITON_BUILD_WITH_CLANG_LLD=true   #Building with lld should result in faster builds: https://github.com/triton-lang/triton?tab=readme-ov-file#tips-for-building
+  export ROCM_PATH=/opt/rocm-6.4.4
+  export CMAKE_PREFIX_PATH=/opt/rocm:$CMAKE_PREFIX_PATH
+  
   # Clone TE repo and submodules
   cd /opt
   git clone --recursive https://github.com/ROCm/TransformerEngine.git
   cd TransformerEngine 
   git checkout v2.1_rocm
+  git submodule sync ; \
+  git submodule update --init --recursive ; \
   pip install --verbose .
   rm -rf /opt/TransformerEngine
