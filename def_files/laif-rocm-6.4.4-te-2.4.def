@@ -1,0 +1,67 @@
+Bootstrap: localimage
+From: /appl/local/laifs/containers/lumi-multitorch-u24r64f21m43t29-20260124_092648/lumi-multitorch-full-u24r64f21m43t29-20260124_092648.sif
+
+%post
+  export MAKEFLAGS=64
+  export N_JOBS=64  
+  export MAX_JOBS=64
+  export CMAKE_INSTALL_PREFIX=/opt/
+  export PYTORCH_ROCM_ARCH=gfx90a
+  export GPU_ARCHS="gfx90a"
+  export GPU_TARGETS=gfx90a
+  export TARGET_GPUS=MI250X
+  export TORCH_DONT_CHECK_COMPILER_ABI=1
+
+  # TE environment variables
+  export NVTE_FRAMEWORK=pytorch
+  export NVTE_ROCM_ARCH=gfx90a
+  export GPU_TARGETS=gfx90a
+  export NVTE_FUSED_ATTN=0
+  export NVTE_AOTRITON_PATH=/python3.12/site-packages/torch/include/aotriton
+  export NVTE_USE_HIPBLASLT=1
+  export CK_USE_FP8_ON_UNSUPPORTED_ARCH=ON
+  export TARGET_GPUS=MI250X
+  export TRITON_BUILD_WITH_CLANG_LLD=true
+  export ROCM_PATH=/opt/rocm-6.4.4
+  export CMAKE_PREFIX_PATH=/opt/rocm-6.4.4:/opt/rocm:$CMAKE_PREFIX_PATH
+  export LD_LIBRARY_PATH=/opt/rocm-6.4.4/lib:$LD_LIBRARY_PATH
+  
+  # Linker workarounds for ROCm 6.4.4 linking issues
+  export LDFLAGS="-Wl,--no-demangle"
+  export CMAKE_EXE_LINKER_FLAGS="-Wl,--no-demangle"
+  export CMAKE_SHARED_LINKER_FLAGS="-Wl,--no-demangle"
+
+  cd /opt
+  mkdir -p /opt/mybuild
+  # Clone TransformerEngine
+  git clone --recursive https://github.com/ROCm/TransformerEngine.git /opt/mybuild
+  cd /opt/mybuild
+  git checkout -b mydev v2.4_rocm
+  git submodule sync
+  git submodule update --init --recursive
+
+  # Create clang++ wrapper to suppress -Wno-c++11-narrowing warnings
+  # This is critical - the wrapper must be in PATH before the system clang++
+  echo '#!/bin/bash -eux' > clang++
+  echo 'exec $ROCM_PATH/llvm/bin/clang++ -Wno-c++11-narrowing $@' >> clang++
+  chmod +x clang++
+  export PATH=$(pwd):$PATH
+  
+  # Remove _TEprivate visibility that causes linker issues
+  sed -i 's/_TEprivate//g' /opt/mybuild/transformer_engine/common/CMakeLists.txt
+  
+  # Add -Wno-invalid-constexpr flag to suppress constexpr warnings
+  sed -i 's/-Wno-gnu-line-marker -Wunused-variable/-Wno-gnu-line-marker -Wno-invalid-constexpr -Wunused-variable/g' /opt/mybuild/transformer_engine/common/ck_fused_attn/CMakeLists.txt
+
+  # Build TransformerEngine as wheel
+  CC=clang \
+    CXX=clang++ \
+    TORCH_DONT_CHECK_COMPILER_ABI=1 \
+    pip wheel --no-deps --verbose -e . -w /opt/wheels
+
+  # Install from wheel
+  pip install /opt/wheels/transformer_engine-*.whl
+
+  # Cleanup
+  cd /
+  rm -rf /opt/mybuild
