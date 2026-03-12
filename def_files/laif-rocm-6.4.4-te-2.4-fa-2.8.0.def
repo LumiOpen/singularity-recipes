@@ -16,7 +16,7 @@ From: /appl/local/laifs/containers/lumi-multitorch-u24r64f21m43t29-20260124_0926
   export LD_PRELOAD="$ROCM_PATH/lib/librccl.so:/usr/lib/libfabric.so:/usr/lib/libcxi.so:${LD_PRELOAD:-}"
 
 %post
-  
+
   export N_JOBS=$(nproc)
 
   export PYTORCH_ROCM_ARCH=gfx90a     # Might be needed once TE makes its pytorch cpp extension... not sure
@@ -24,7 +24,7 @@ From: /appl/local/laifs/containers/lumi-multitorch-u24r64f21m43t29-20260124_0926
   export NVTE_ROCM_ARCH=gfx90a        # This needs to be set, as by default it is "gfx942:gfx950"
   export NVTE_FUSED_ATTN=0            # Aiter V3 kernels are a dependency for TransformerEngine fused attention and they are not supported for mi250x, so we disable it here
   export NVTE_USE_HIPBLASLT=1         # Not sure if this needed, but HipBLAS is the only supported blas backend for TE (rocBlas no longer supported)
-
+  
   # Alot of the time the default compilation excludes the gfx90a architecture so we set it here explicitly. This also saves time
   export GPU_ARCHS=gfx90a             # Aiter, seems to interfere with utils.py chip_info and rocminfo
   export GPU_TARGETS=gfx90a           # Composed Kernels
@@ -66,9 +66,17 @@ From: /appl/local/laifs/containers/lumi-multitorch-u24r64f21m43t29-20260124_0926
   # Pretty straight forward for once. Pytorch-triton-rocm is inside the container, but is too new for our TE
   pip install triton==3.2.0
 
+  ## FLASH_ATTENTION ## 
+  # FA is 2.8.3 inside the container, which is too new for our TE.
+  # Compilation of CK kernels takes a long time
+  pip uninstall -y flash_attn flash-attention
+  git clone https://github.com/Dao-AILab/flash-attention.git /opt/mybuild/flash-attention
+  cd /opt/mybuild/flash-attention
+  git checkout v2.8.0.post2
+  python setup.py install
+
   # Cleanup
   # TODO: Move these
-  cd /opt
   rm -rf /opt/mybuild
   rm -rf /opt/wheels/*
 
