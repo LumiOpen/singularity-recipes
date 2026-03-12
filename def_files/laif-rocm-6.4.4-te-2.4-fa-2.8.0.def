@@ -1,0 +1,87 @@
+Bootstrap: localimage
+From: /appl/local/laifs/containers/lumi-multitorch-u24r64f21m43t29-20260124_092648/lumi-multitorch-full-u24r64f21m43t29-20260124_092648.sif
+
+%labels
+  Author vmjkom@utu.fi
+  
+%help
+  Building of additional python packages ontop the LUMI AI factory provided containers.
+  Includes modifications of https://github.com/sfantao/LUMI-containers/blob/main/RecipesDocker/pytorch/build-rocm-6.2.4-python-3.12-pytorch-v2.7.1-te.docker. 
+
+%environment
+  export ROCM_PATH=/opt/rocm-6.4.4
+
+  # The following ensures that correct libfabric and rccl gets linked first.
+  export LD_LIBRARY_PATH="$ROCM_PATH/lib:/usr/lib:${LD_LIBRARY_PATH:-}"
+  export LD_PRELOAD="$ROCM_PATH/lib/librccl.so:/usr/lib/libfabric.so:/usr/lib/libcxi.so:${LD_PRELOAD:-}"
+
+%post
+
+  export N_JOBS=$(nproc)
+
+  export PYTORCH_ROCM_ARCH=gfx90a     # Might be needed once TE makes its pytorch cpp extension... not sure
+  export NVTE_FRAMEWORK=pytorch       # Only build for pytorch and not jax
+  export NVTE_ROCM_ARCH=gfx90a        # This needs to be set, as by default it is "gfx942:gfx950"
+  export NVTE_FUSED_ATTN=0            # Aiter V3 kernels are a dependency for TransformerEngine fused attention and they are not supported for mi250x, so we disable it here
+  export NVTE_USE_HIPBLASLT=1         # Not sure if this needed, but HipBLAS is the only supported blas backend for TE (rocBlas no longer supported)
+  
+  # Alot of the time the default compilation excludes the gfx90a architecture so we set it here explicitly. This also saves time
+  export GPU_ARCHS=gfx90a             # Aiter, seems to interfere with utils.py chip_info and rocminfo
+  export GPU_TARGETS=gfx90a           # Composed Kernels
+  export AOTRITON_TARGET_ARCH=gfx90a  # AOTriton. This used to be TARGET_GPUS
+
+  export ROCM_PATH=/opt/rocm-6.4.4   # ROCM_PATH doesnt seem to be set in the laif containers#
+  export CMAKE_PREFIX_PATH=/opt/rocm-6.4.4:/opt/rocm:$CMAKE_PREFIX_PATH # If this is not set, CMAKE doesnt find hip
+  
+  ## TRANSFORMER_ENGINE ##
+  # What follows is a hacky way of installing TE in LUMI, theres probably a better way of doing this
+  # Biggest problem is the linker "choking" ninja build commands finish
+  # TODO: Make this more refined:
+  # 1. Remove unnecessary submodule cloning
+  # 2. Resolve the RPATH issue
+
+  mkdir -p /opt/mybuild
+
+  git clone https://github.com/ROCm/TransformerEngine.git /opt/mybuild/TransformerEngine
+  cd /opt/mybuild/TransformerEngine
+  git checkout -b mydev v2.4_rocm
+  git submodule sync
+  git submodule update --init --recursive
+
+  # Hax for the linker issues. Credit goes to Samuel Antao, AMD
+
+  echo '#!/bin/bash -eux' > clang++ ; \
+  echo 'exec $ROCM_PATH/llvm/bin/clang++ -Wno-c++11-narrowing $@' >> clang++ ; \
+  chmod +x clang++ ; \
+  export PATH=$(pwd):$PATH ; \
+  \
+  sed -i 's/-Werror//g' /opt/mybuild/TransformerEngine/3rdparty/aotriton/third_party/triton/CMakeLists.txt ; \
+  sed -i 's/_TEprivate//g' /opt/mybuild/TransformerEngine/transformer_engine/common/CMakeLists.txt ; \
+  sed -i 's/-Wno-gnu-line-marker -Wunused-variable/-Wno-gnu-line-marker -Wno-invalid-constexpr -Wunused-variable/g' /opt/mybuild/TransformerEngine/transformer_engine/common/ck_fused_attn/CMakeLists.txt ; \
+  CC=clang \
+    CXX=clang++ \
+    pip install . --no-build-isolation --verbose
+  
+  ## TRITON ##
+  # Pretty straight forward for once. Pytorch-triton-rocm is inside the container, but is too new for our TE
+  pip install triton==3.2.0
+
+  ## FLASH_ATTENTION ## 
+  # FA is 2.8.3 inside the container, which is too new for our TE.
+  # Compilation of CK kernels takes a long time
+  pip uninstall -y flash_attn flash-attention
+  git clone https://github.com/Dao-AILab/flash-attention.git /opt/mybuild/flash-attention
+  cd /opt/mybuild/flash-attention
+  git checkout v2.8.0.post2
+  python setup.py install
+
+  # Cleanup
+  # TODO: Move these
+  rm -rf /opt/mybuild
+  rm -rf /opt/wheels/*
+
+%test
+  # TODO: FA TEST
+  # TODO: TE TEST
+  # python -c "import transformer_engine; print(transformer_engine.__file__)"
+
